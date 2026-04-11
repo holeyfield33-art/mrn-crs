@@ -1,0 +1,118 @@
+version: "3.8"
+
+services:
+  crs:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - ALETHEIA_URL=http://aletheia:8300
+      - GEOMETRIC_URL=http://geometric:8200
+      - MNEME_URL=http://mneme:8100
+      - CRS_API_KEYS=${CRS_API_KEYS:-}
+      - CRS_RATE_LIMIT_PER_MINUTE=${CRS_RATE_LIMIT_PER_MINUTE:-60}
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_SELF_HEALING=${ENABLE_SELF_HEALING:-true}
+      - SELF_HEAL_INTERVAL_SECONDS=${SELF_HEAL_INTERVAL_SECONDS:-60}
+      - SELF_HEAL_DRIFT_THRESHOLD=${SELF_HEAL_DRIFT_THRESHOLD:-0.5}
+      - SELF_HEAL_HEALTHY_R_MIN=${SELF_HEAL_HEALTHY_R_MIN:-0.57}
+      - SELF_HEAL_HEALTHY_R_MAX=${SELF_HEAL_HEALTHY_R_MAX:-0.59}
+      - SELF_HEAL_HEALTHY_SHI_MIN=${SELF_HEAL_HEALTHY_SHI_MIN:-0.8}
+      - SELF_HEAL_MIN_MEMORIES=${SELF_HEAL_MIN_MEMORIES:-10}
+      - SELF_HEAL_LEVEL_LOW=${SELF_HEAL_LEVEL_LOW:-0.02}
+      - SELF_HEAL_LEVEL_MEDIUM=${SELF_HEAL_LEVEL_MEDIUM:-0.05}
+      - SELF_HEAL_LEVEL_HIGH=${SELF_HEAL_LEVEL_HIGH:-0.10}
+      - SELF_HEAL_ESCALATION_WEBHOOK=${SELF_HEAL_ESCALATION_WEBHOOK:-}
+      - SELF_HEAL_ESCALATION_FILE=${SELF_HEAL_ESCALATION_FILE:-escalations.jsonl}
+      - HEALING_HISTORY_DB=${HEALING_HISTORY_DB:-healing_history.db}
+      - SAMPLING_TEMPERATURE=${SAMPLING_TEMPERATURE:-0.7}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      aletheia:
+        condition: service_healthy
+      geometric:
+        condition: service_started
+      mneme:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - mrn-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  aletheia:
+    image: aletheia-cyber-core:1.6.2
+    ports:
+      - "8300:8000"
+    environment:
+      - ALETHEIA_RECEIPT_SECRET=${ALETHEIA_RECEIPT_SECRET:-changeme-aletheia-secret}
+      - ALETHEIA_API_KEYS=${ALETHEIA_API_KEYS:-deepseek_v4,perplexity}
+      - ALETHEIA_MODE=active
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mrn-net
+
+  geometric:
+    image: geometric-brain-mcp:latest
+    ports:
+      - "8200:8200"
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8200"]
+    networks:
+      - mrn-net
+
+  mneme:
+    image: aletheia-mneme:latest
+    ports:
+      - "8100:8100"
+    environment:
+      - PERSONAL_MODE=${PERSONAL_MODE:-true}
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/mneme
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mrn-net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_DB=mneme
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mrn-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mrn-net
+
+networks:
+  mrn-net:
+    driver: bridge
+
+volumes:
+  pgdata:
