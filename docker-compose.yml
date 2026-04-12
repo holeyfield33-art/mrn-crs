@@ -28,6 +28,9 @@ services:
       - HEALING_HISTORY_DB=${HEALING_HISTORY_DB:-healing_history.db}
       - SAMPLING_TEMPERATURE=${SAMPLING_TEMPERATURE:-0.7}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_HUMAN_GATES=${ENABLE_HUMAN_GATES:-true}
+      - AUTONOMOUS_MODE=${AUTONOMOUS_MODE:-false}
+      - FREEZE_ON_CRITICAL=${FREEZE_ON_CRITICAL:-true}
     depends_on:
       aletheia:
         condition: service_healthy
@@ -46,7 +49,7 @@ services:
       retries: 3
 
   aletheia:
-    image: aletheia-cyber-core:1.6.2
+    image: holeyfield33/aletheia-core:1.6.2
     ports:
       - "8300:8000"
     environment:
@@ -62,7 +65,7 @@ services:
       - mrn-net
 
   geometric:
-    image: geometric-brain-mcp:latest
+    image: holeyfield33/geometric-brain:latest
     ports:
       - "8200:8200"
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8200"]
@@ -70,7 +73,7 @@ services:
       - mrn-net
 
   mneme:
-    image: aletheia-mneme:latest
+    image: holeyfield33/mneme:latest
     ports:
       - "8100:8100"
     environment:
