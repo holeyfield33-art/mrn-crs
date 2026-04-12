@@ -1,8 +1,8 @@
 # MRN Constrained Reasoning System (CRS)
 
 Production-grade FastAPI service that orchestrates **constrained multi-agent reasoning**
-with geometric self-healing, Aletheia security audit, Mneme memory persistence, and
-Geometric Brain spectral analysis.
+with geometric self-healing, Aletheia security audit, Mneme memory persistence,
+Geometric Brain spectral analysis, **entropy monitoring**, and **four-tier freeze logic**.
 
 ## Architecture
 
@@ -21,8 +21,10 @@ Geometric Brain spectral analysis.
                                    │  Background:               │
                                    │  self-healing loop ──────► │    ┌──────────┐
                                    │   ↕ drift detection        │    │ Postgres │
-                                   │   ↕ multi-level policies   │    │ (pgvector)│
-                                   └────────────────────────────┘    └──────────┘
+                                   │   ↕ entropy monitoring     │    │ (pgvector)│
+                                   │   ↕ four-tier freeze       │    └──────────┘
+                                   │   ↕ human escalation       │
+                                   └────────────────────────────┘
 ```
 
 ## Quick start
@@ -172,6 +174,23 @@ and classifies it into levels:
 - **escalate\_to\_human** – Write a JSONL entry to the escalation file and optionally POST to a webhook.
 
 Every action is audited via Aletheia and recorded in the healing history SQLite database.
+
+## Entropy monitoring & four-tier freeze
+
+Shannon entropy is computed from the covariance eigenvalues of recent embeddings on
+every self-healing cycle.  The system **freezes** (stops all reasoning, writes
+`freeze_manifest.json`, escalates to human) when any of four conditions is met:
+
+| Tier | Condition | Trigger |
+| --- | --- | --- |
+| 1 – Semantic loop | 2 consecutive cycles with entropy < 0.35 | Repetitive / circular reasoning |
+| 2 – Critical collapse | Single cycle entropy < 0.25 | Near-total information collapse |
+| 3 – Runaway divergence | Single cycle drift > 0.25 | Spectral signature diverging far from golden ratio |
+| 4 – Structural collapse | Fibonacci recovery score < 0.3 | Eigenvalue distribution deviating from golden-ratio ideal |
+
+A **Fibonacci anchor** (normalised first 10 Fibonacci numbers) serves as the ideal
+eigenvalue distribution.  Cosine similarity between the current eigenvalue vector and
+this anchor is the *Fibonacci recovery score*.
 
 ## Testing
 

@@ -1,4 +1,5 @@
-"""Self-healing background loop – multi-level policy engine with healing history."""
+"""Self-healing background loop – multi-level policy engine with healing history,
+entropy monitoring, and four-tier freeze logic."""
 
 from __future__ import annotations
 
@@ -10,12 +11,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import httpx
 
 from src.api.metrics import crs_self_heal_total
 from src.clients.aletheia_client import AletheiaClient
 from src.clients.geometric_client import GeometricClient
 from src.clients.mneme_client import MnemeClient
+from src.core.spectral_utils import (
+    compute_entropy_from_embeddings,
+    compute_shannon_entropy,
+    compute_windowed_spectral_signature,
+    fibonacci_recovery_score,
+)
 from src.services.healing_history import HealingHistory
 
 logger = logging.getLogger(__name__)
@@ -36,10 +44,34 @@ DEFAULT_LEVEL_ACTIONS: dict[str, list[str]] = {
     "high": ["reset_context", "inject_memories", "adjust_temperature", "escalate_to_human"],
 }
 
+# --------------------------------------------------------------------------- #
+# Freeze tier thresholds
+# --------------------------------------------------------------------------- #
+ENTROPY_SEMANTIC_LOOP = 0.35       # 2 consecutive steps below → semantic loop
+ENTROPY_CRITICAL_COLLAPSE = 0.25   # single step below → critical collapse
+DRIFT_RUNAWAY_THRESHOLD = 0.25     # single step above → runaway divergence
+FIB_RECOVERY_MINIMUM = 0.3        # Fibonacci recovery score below → structural collapse
+
+
+class FreezeEvent(Exception):
+    """Raised when the system enters a frozen state."""
+
+    def __init__(self, reason: str, manifest: dict[str, Any]) -> None:
+        self.reason = reason
+        self.manifest = manifest
+        super().__init__(reason)
+
 
 class SelfHealingLoop:
     """Periodically queries Mneme for recent memories, checks Geometric Brain
-    for drift, and applies multi-level correction policies."""
+    for drift, and applies multi-level correction policies.
+
+    Four-tier freeze conditions:
+      1. SEMANTIC_LOOP_DETECTED        – 2 consecutive entropy < 0.35
+      2. CRITICAL_INFORMATION_COLLAPSE – single entropy < 0.25
+      3. RUNAWAY_DIVERGENCE            – single drift > 0.25
+      4. STRUCTURAL_COLLAPSE           – Fibonacci recovery score < 0.3
+    """
 
     def __init__(
         self,
@@ -75,7 +107,11 @@ class SelfHealingLoop:
         self.escalation_webhook = escalation_webhook
         self.escalation_file = escalation_file
         self.enabled = True
+        self.frozen = False
         self.history = HealingHistory(healing_history_db)
+
+        # Entropy / drift history for windowed checks
+        self.drift_history: list[dict[str, Any]] = []
 
     # ---------------------------------------------------------------------- #
     # Drift classification
@@ -91,6 +127,86 @@ class SelfHealingLoop:
         if drift >= self.level_low:
             return drift, "low"
         return drift, "none"
+
+    # ---------------------------------------------------------------------- #
+    # Four-tier freeze checks
+    # ---------------------------------------------------------------------- #
+
+    async def _check_critical_freeze(
+        self,
+        entropy: float,
+        drift: float,
+        embeddings: list[list[float]],
+    ) -> bool:
+        """Evaluate the four freeze conditions.  Returns True if frozen."""
+
+        # Tier 1: Semantic loop – 2 consecutive steps with entropy < 0.35
+        if len(self.drift_history) >= 2:
+            if all(h["entropy"] < ENTROPY_SEMANTIC_LOOP for h in self.drift_history[-2:]):
+                await self._execute_freeze("SEMANTIC_LOOP_DETECTED", entropy=entropy, drift=drift)
+                return True
+
+        # Tier 2: Critical information collapse – single step entropy < 0.25
+        if entropy < ENTROPY_CRITICAL_COLLAPSE:
+            await self._execute_freeze("CRITICAL_INFORMATION_COLLAPSE", entropy=entropy, drift=drift)
+            return True
+
+        # Tier 3: Runaway divergence – single step drift > 0.25
+        if drift > DRIFT_RUNAWAY_THRESHOLD:
+            await self._execute_freeze("RUNAWAY_DIVERGENCE", entropy=entropy, drift=drift)
+            return True
+
+        # Tier 4: Structural collapse – Fibonacci recovery score < 0.3
+        if len(embeddings) >= 2:
+            mat = np.array(embeddings, dtype=np.float64)
+            cov = np.cov(mat, rowvar=True)
+            eigenvalues = np.linalg.eigvalsh(cov)
+            fib_score = fibonacci_recovery_score(eigenvalues)
+            if fib_score < FIB_RECOVERY_MINIMUM:
+                await self._execute_freeze(
+                    "STRUCTURAL_COLLAPSE",
+                    entropy=entropy,
+                    drift=drift,
+                    fib_score=fib_score,
+                )
+                return True
+
+        return False
+
+    async def _execute_freeze(self, reason: str, **details: Any) -> None:
+        """Freeze the system: stop healing, write manifest, escalate."""
+        self.frozen = True
+        self.enabled = False
+
+        manifest = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+            "details": details,
+            "drift_history": self.drift_history[-10:],
+        }
+
+        # Write freeze manifest
+        manifest_path = Path("freeze_manifest.json")
+        manifest_path.write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+        logger.critical("SYSTEM FROZEN: %s – manifest written to %s", reason, manifest_path)
+
+        # Escalate to human
+        await self._action_escalate_to_human(
+            drift=details.get("drift", 0.0),
+            level="FROZEN",
+            message=f"SYSTEM FROZEN: {reason}",
+        )
+
+        # Record in healing history
+        self.history.record(
+            drift=details.get("drift", 0.0),
+            level="FROZEN",
+            actions=["freeze"],
+            memories_injected=0,
+            details=manifest,
+        )
+
+        crs_self_heal_total.labels(outcome="frozen").inc()
 
     # ---------------------------------------------------------------------- #
     # Action implementations
@@ -126,13 +242,18 @@ class SelfHealingLoop:
         healthy_context_buffer.clear()
         logger.info("Context buffer reset")
 
-    async def _action_escalate_to_human(self, drift: float, level: str) -> None:
+    async def _action_escalate_to_human(
+        self,
+        drift: float,
+        level: str,
+        message: str = "Geometric drift exceeds safe threshold – human review required",
+    ) -> None:
         """Write escalation to file and optionally POST to a webhook."""
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "drift": drift,
             "level": level,
-            "message": "Geometric drift exceeds safe threshold – human review required",
+            "message": message,
         }
 
         # Always write to escalation file
@@ -154,7 +275,11 @@ class SelfHealingLoop:
     # ---------------------------------------------------------------------- #
 
     async def _run_cycle(self) -> None:
-        """Execute one self-healing cycle with multi-level policy."""
+        """Execute one self-healing cycle with multi-level policy and entropy monitoring."""
+
+        if self.frozen:
+            logger.warning("System is frozen – skipping self-healing cycle")
+            return
 
         # 1. Query Mneme for recent memories in the broad spectral range
         try:
@@ -178,36 +303,55 @@ class SelfHealingLoop:
             )
             return
 
-        # 3. Ask Geometric Brain whether drift correction is needed
+        # 3. Compute entropy for this cycle
+        entropy = compute_entropy_from_embeddings(embeddings)
+
+        # 4. Ask Geometric Brain whether drift correction is needed
         try:
             result = await self.geometric.self_heal(embeddings, current_r=self.drift_threshold)
         except httpx.HTTPError as exc:
             logger.warning("Geometric Brain unreachable in self-heal cycle: %s", exc)
             return
 
-        if not result.get("self_heal_needed"):
-            logger.debug("No drift detected – self-heal not needed")
-            crs_self_heal_total.labels(outcome="no_drift").inc()
-            return
-
-        # 4. Determine current_r and classify drift
+        # 5. Determine current_r and classify drift
         current_r = result.get("current_r", self.drift_threshold)
         drift, level = self._classify_drift(current_r)
+
+        # 6. Record entropy/drift in rolling history
+        self.drift_history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "entropy": entropy,
+            "drift": drift,
+            "level": level,
+            "current_r": current_r,
+        })
+        # Keep last 100 entries
+        if len(self.drift_history) > 100:
+            self.drift_history = self.drift_history[-100:]
+
+        # 7. Check four-tier freeze conditions
+        if await self._check_critical_freeze(entropy, drift, embeddings):
+            return  # System is now frozen
+
+        if not result.get("self_heal_needed"):
+            logger.debug("No drift detected – self-heal not needed (entropy=%.3f)", entropy)
+            crs_self_heal_total.labels(outcome="no_drift").inc()
+            return
 
         if level == "none":
             logger.debug("Drift %.4f below low threshold – no action", drift)
             crs_self_heal_total.labels(outcome="below_threshold").inc()
             return
 
-        logger.info("Geometric drift detected: %.4f (level=%s)", drift, level)
+        logger.info("Geometric drift detected: %.4f (level=%s, entropy=%.3f)", drift, level, entropy)
 
-        # 5. Determine retrieval thresholds from correction dict
+        # 8. Determine retrieval thresholds from correction dict
         correction = result.get("correction", result.get("corrections", {}))
         if isinstance(correction, list):
             correction = correction[0] if correction else {}
         retrieve_shi_above = correction.get("retrieve_shi_above", self.healthy_shi_min)
 
-        # 6. Execute actions for the detected level
+        # 9. Execute actions for the detected level
         actions = DEFAULT_LEVEL_ACTIONS.get(level, ["inject_memories"])
         executed_actions: list[str] = []
         memories_injected = 0
@@ -227,7 +371,7 @@ class SelfHealingLoop:
                 await self._action_escalate_to_human(drift, level)
                 executed_actions.append("escalate_to_human")
 
-        # 7. Audit each action via Aletheia
+        # 10. Audit each action via Aletheia
         memory_ids = [m.get("id", m.get("step_id", "unknown")) for m in healthy_context_buffer]
         for action_name in executed_actions:
             try:
@@ -239,6 +383,7 @@ class SelfHealingLoop:
                     "payload": {
                         "drift": drift,
                         "level": level,
+                        "entropy": entropy,
                         "action": action_name,
                         "memory_ids": memory_ids,
                         "correction": correction,
@@ -247,19 +392,19 @@ class SelfHealingLoop:
             except httpx.HTTPError:
                 logger.warning("Aletheia unreachable – audit for %s skipped", action_name)
 
-        # 8. Record healing event in history
+        # 11. Record healing event in history
         self.history.record(
             drift=drift,
             level=level,
             actions=executed_actions,
             memories_injected=memories_injected,
-            details={"correction": correction, "current_r": current_r},
+            details={"correction": correction, "current_r": current_r, "entropy": entropy},
         )
 
         crs_self_heal_total.labels(outcome=level).inc()
         logger.info(
-            "Self-healing cycle complete: drift=%.4f level=%s actions=%s memories=%d",
-            drift, level, executed_actions, memories_injected,
+            "Self-healing cycle complete: drift=%.4f level=%s entropy=%.3f actions=%s memories=%d",
+            drift, level, entropy, executed_actions, memories_injected,
         )
 
     # ---------------------------------------------------------------------- #

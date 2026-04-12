@@ -2,6 +2,31 @@
 
 All notable changes to the MRN Constrained Reasoning System (CRS) are documented here.
 
+## [1.1.0] - 2026-04-12
+
+### Added (v1.1.0)
+
+- **Entropy monitoring** – Shannon entropy computed from covariance eigenvalues of recent embeddings on every self-healing cycle.
+- **Four-tier freeze logic** – system freezes (stops reasoning, writes `freeze_manifest.json`, escalates to human) on:
+  - Tier 1: Semantic loop – 2 consecutive cycles with entropy < 0.35.
+  - Tier 2: Critical information collapse – single cycle entropy < 0.25.
+  - Tier 3: Runaway divergence – single cycle drift > 0.25.
+  - Tier 4: Structural collapse – Fibonacci recovery score < 0.3.
+- **Fibonacci anchor** – normalised Fibonacci sequence as ideal eigenvalue distribution; cosine similarity used as recovery metric.
+- **Windowed spectral signature** – `compute_windowed_spectral_signature()` for covariance-based r\_ratio/SHI over embedding windows.
+- **Shannon entropy utilities** – `compute_shannon_entropy()`, `compute_entropy_from_embeddings()` in `spectral_utils.py`.
+- **`fibonacci_recovery_score()`** – cosine similarity between eigenvalue distribution and Fibonacci anchor.
+- **Drift history tracking** – rolling 100-entry history of entropy/drift per cycle in `SelfHealingLoop`.
+- **`FreezeEvent` exception** – raised when the system enters a frozen state.
+- **`.env.example`** – example environment file with all configuration variables.
+
+### Changed (v1.1.0)
+
+- `SelfHealingLoop._run_cycle()` now computes entropy, checks freeze conditions before applying corrective actions.
+- `_action_escalate_to_human()` accepts a custom `message` parameter.
+- Entropy is included in Aletheia audit payloads and healing history records.
+- README updated with entropy monitoring and four-tier freeze documentation.
+
 ## [1.0.0] - 2026-04-11
 
 ### Added (v1.0.0)

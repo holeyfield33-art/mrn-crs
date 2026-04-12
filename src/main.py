@@ -118,8 +118,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="MRN Constrained Reasoning System",
-    version="1.0.0",
-    description="Orchestrates reasoning steps, consensus frames, and geometric self-healing.",
+    version="1.1.0",
+    description="Orchestrates reasoning steps, consensus frames, and geometric self-healing with entropy monitoring and four-tier freeze logic.",
     lifespan=lifespan,
 )
 app.state.limiter = limiter
