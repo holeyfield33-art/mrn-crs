@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -38,7 +39,3 @@ def embed_text(text: str) -> "NDArray[np.float32]":
     seed = int(hashlib.sha256(text.encode()).hexdigest(), 16) % (2**32)
     rng = np.random.default_rng(seed)
     return rng.standard_normal(384).astype(np.float32)
-
-
-# Needed for the fallback path
-import hashlib  # noqa: E402

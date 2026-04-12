@@ -46,13 +46,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Aletheia secrets
-    aletheia_receipt_secret: str = "changeme"
-    aletheia_api_keys: str = "deepseek_v4,perplexity"
-
-    # Mneme / storage
-    personal_mode: bool = True
-    database_url: str = "sqlite:///./dev.db"
-
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

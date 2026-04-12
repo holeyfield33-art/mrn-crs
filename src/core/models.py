@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -47,7 +47,7 @@ class JSONLDStep(BaseModel):
     fingerprint: Optional[str] = None
     epistemic_value: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     superseded_by: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # --------------------------------------------------------------------------- #
@@ -61,7 +61,7 @@ class EvidenceEntry(BaseModel):
     step_id: str
     summary: str
     confidence: float = Field(ge=0.0, le=1.0)
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ConsensusFrame(BaseModel):
@@ -73,8 +73,8 @@ class ConsensusFrame(BaseModel):
     resolution: Optional[str] = None
     evidence_log: list[EvidenceEntry] = Field(default_factory=list)
     confidence_trajectory: list[float] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # --------------------------------------------------------------------------- #

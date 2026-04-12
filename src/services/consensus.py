@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -53,7 +53,7 @@ async def add_evidence(
     entry = EvidenceEntry(step_id=step_id, summary=summary, confidence=confidence)
     frame.evidence_log.append(entry)
     frame.confidence_trajectory.append(confidence)
-    frame.updated_at = datetime.utcnow()
+    frame.updated_at = datetime.now(timezone.utc)
 
     # Auto-resolve when confidence converges above 0.9
     if len(frame.confidence_trajectory) >= 3:
