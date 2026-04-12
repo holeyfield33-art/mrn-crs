@@ -41,7 +41,7 @@ sampling_temperature: float = 0.7
 DEFAULT_LEVEL_ACTIONS: dict[str, list[str]] = {
     "low": ["inject_memories"],
     "medium": ["inject_memories", "adjust_temperature"],
-    "high": ["reset_context", "inject_memories", "adjust_temperature", "escalate_to_human"],
+    "high": ["reset_context", "inject_memories", "adjust_temperature"],
 }
 
 # --------------------------------------------------------------------------- #
@@ -190,13 +190,6 @@ class SelfHealingLoop:
         manifest_path.write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
         logger.critical("SYSTEM FROZEN: %s – manifest written to %s", reason, manifest_path)
 
-        # Escalate to human
-        await self._action_escalate_to_human(
-            drift=details.get("drift", 0.0),
-            level="FROZEN",
-            message=f"SYSTEM FROZEN: {reason}",
-        )
-
         # Record in healing history
         self.history.record(
             drift=details.get("drift", 0.0),
@@ -241,34 +234,6 @@ class SelfHealingLoop:
         """Clear context buffer entirely (will be re-populated by inject_memories)."""
         healthy_context_buffer.clear()
         logger.info("Context buffer reset")
-
-    async def _action_escalate_to_human(
-        self,
-        drift: float,
-        level: str,
-        message: str = "Geometric drift exceeds safe threshold – human review required",
-    ) -> None:
-        """Write escalation to file and optionally POST to a webhook."""
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "drift": drift,
-            "level": level,
-            "message": message,
-        }
-
-        # Always write to escalation file
-        path = Path(self.escalation_file)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-        logger.warning("Human escalation written to %s", self.escalation_file)
-
-        # Optionally POST to webhook
-        if self.escalation_webhook:
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
-                    await client.post(self.escalation_webhook, json=entry)
-            except httpx.HTTPError:
-                logger.warning("Escalation webhook unreachable")
 
     # ---------------------------------------------------------------------- #
     # Single cycle
@@ -367,9 +332,6 @@ class SelfHealingLoop:
             elif action == "adjust_temperature":
                 self._action_adjust_temperature(drift)
                 executed_actions.append("adjust_temperature")
-            elif action == "escalate_to_human":
-                await self._action_escalate_to_human(drift, level)
-                executed_actions.append("escalate_to_human")
 
         # 10. Audit each action via Aletheia
         memory_ids = [m.get("id", m.get("step_id", "unknown")) for m in healthy_context_buffer]

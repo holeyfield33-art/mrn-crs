@@ -14,7 +14,7 @@ services:
       - CRS_RATE_LIMIT_PER_MINUTE=${CRS_RATE_LIMIT_PER_MINUTE:-60}
       - REDIS_URL=redis://redis:6379/0
       - ENABLE_SELF_HEALING=${ENABLE_SELF_HEALING:-true}
-      - SELF_HEAL_INTERVAL_SECONDS=${SELF_HEAL_INTERVAL_SECONDS:-60}
+      - SELF_HEAL_INTERVAL_SECONDS=${SELF_HEAL_INTERVAL_SECONDS:-15}
       - SELF_HEAL_DRIFT_THRESHOLD=${SELF_HEAL_DRIFT_THRESHOLD:-0.5}
       - SELF_HEAL_HEALTHY_R_MIN=${SELF_HEAL_HEALTHY_R_MIN:-0.57}
       - SELF_HEAL_HEALTHY_R_MAX=${SELF_HEAL_HEALTHY_R_MAX:-0.59}
@@ -52,7 +52,7 @@ services:
     environment:
       - ALETHEIA_RECEIPT_SECRET=${ALETHEIA_RECEIPT_SECRET:-changeme-aletheia-secret}
       - ALETHEIA_API_KEYS=${ALETHEIA_API_KEYS:-deepseek_v4,perplexity}
-      - ALETHEIA_MODE=active
+      - ALETHEIA_MODE=passive
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

@@ -227,12 +227,12 @@ async def test_medium_drift_adjusts_temperature(mock_clients, tmp_db):
 
 
 # ------------------------------------------------------------------ #
-# High-level drift: reset + inject + adjust + escalate
+# High-level drift: reset + inject + adjust (no escalation in unconstrained)
 # ------------------------------------------------------------------ #
 
 
 @pytest.mark.asyncio
-async def test_high_drift_escalates_to_human(mock_clients, tmp_db, tmp_escalation):
+async def test_high_drift_no_escalation(mock_clients, tmp_db):
     geo, mneme, aletheia = mock_clients
     embs = _diverse_embeddings(10)
 
@@ -245,26 +245,17 @@ async def test_high_drift_escalates_to_human(mock_clients, tmp_db, tmp_escalatio
         "self_heal_needed": True,
         "current_r": _GOLDEN_R + 0.15,
     }
-    aletheia.audit_step.return_value = {"decision": "ALLOW"}
+    aletheia.audit_step.return_value = {"decision": "PROCEED", "receipt": {"mode": "passive_audit"}}
 
     loop = _make_loop(
         geo, mneme, aletheia,
         min_memories=1,
         healing_history_db=tmp_db,
-        escalation_file=tmp_escalation,
     )
     await loop._run_cycle()
 
-    # High => 4 actions => 4 audit calls
-    assert aletheia.audit_step.call_count == 4
-
-    # Escalation file written
-    with open(tmp_escalation) as f:
-        lines = f.readlines()
-    assert len(lines) == 1
-    entry = json.loads(lines[0])
-    assert entry["level"] == "high"
-    assert "human review required" in entry["message"]
+    # High => 3 actions (no escalation in unconstrained) => 3 audit calls
+    assert aletheia.audit_step.call_count == 3
 
 
 # ------------------------------------------------------------------ #

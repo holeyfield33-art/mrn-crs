@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # Self-healing
     enable_self_healing: bool = True
-    self_heal_interval_seconds: int = 60
+    self_heal_interval_seconds: int = 15
     self_heal_drift_threshold: float = 0.5
     self_heal_healthy_r_min: float = 0.57
     self_heal_healthy_r_max: float = 0.59
