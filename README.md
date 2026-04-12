@@ -1,8 +1,19 @@
 # MRN Constrained Reasoning System (CRS)
 
+**Fully self-contained** – clone this repo, run `docker compose up`, and get the
+entire MRN stack running locally. All downstream service images are pulled
+automatically from Docker Hub.
+
 Production-grade FastAPI service that orchestrates **constrained multi-agent reasoning**
 with geometric self-healing, Aletheia security audit, Mneme memory persistence,
 Geometric Brain spectral analysis, **entropy monitoring**, and **four-tier freeze logic**.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) (v20.10+)
+- [Docker Compose](https://docs.docker.com/compose/) (v2+, bundled with Docker Desktop)
+
+No other repositories or local builds are required.
 
 ## Architecture
 
@@ -30,15 +41,25 @@ Geometric Brain spectral analysis, **entropy monitoring**, and **four-tier freez
 ## Quick start
 
 ```bash
-# 1. Copy environment config
+# 1. Clone the repo
+git clone https://github.com/holeyfield33/mrn-constrained-crs.git
+cd mrn-constrained-crs
+
+# 2. Copy environment config (works out of the box with defaults)
 cp .env.example .env
 
-# 2. Start all services (CRS + Aletheia + Geometric Brain + Mneme + Postgres + Redis)
+# 3. Start all services (CRS + Aletheia + Geometric Brain + Mneme + Postgres + Redis)
 docker compose up --build
 
-# 3. Verify
+# 4. Verify
 curl http://localhost:8000/health
 ```
+
+Docker pulls public images for Aletheia, Geometric Brain, Mneme, Postgres (pgvector),
+and Redis automatically. Only the CRS service is built from this repo's `Dockerfile`.
+
+See [docs/INSTALL.md](docs/INSTALL.md) for detailed setup and
+[docs/RUN.md](docs/RUN.md) for operational guidance.
 
 ## Running locally (without Docker)
 
