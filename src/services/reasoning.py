@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from src.api.metrics import crs_client_call_duration_seconds
 from src.clients.aletheia_client import AletheiaClient
 from src.clients.geometric_client import GeometricClient
 from src.clients.mneme_client import MnemeClient
@@ -68,7 +69,8 @@ async def store_reasoning_step(
 
     # 3. Aletheia audit
     try:
-        audit_resp = await aletheia.audit_step(step.model_dump(mode="json"))
+        with crs_client_call_duration_seconds.labels(service="aletheia").time():
+            audit_resp = await aletheia.audit_step(step.model_dump(mode="json"))
         decision = audit_resp.get("decision", "ALLOW")
         if decision == "DENY":
             raise PolicyDenied(audit_resp)
@@ -86,7 +88,8 @@ async def store_reasoning_step(
     # 4. Geometric Brain health-check
     combined_text = f"{req.premise} → {req.conclusion}"
     try:
-        health = await geometric.health_check(combined_text)
+        with crs_client_call_duration_seconds.labels(service="geometric").time():
+            health = await geometric.health_check(combined_text)
         if health.get("human_escalation"):
             raise HumanEscalation(health)
     except httpx.HTTPError as exc:
@@ -99,7 +102,8 @@ async def store_reasoning_step(
     # 6. Spectral signature (try Geometric Brain, fall back to local)
     spectral: SpectralSignature | None = None
     try:
-        manifold = await geometric.manifold_audit(embedding_list)
+        with crs_client_call_duration_seconds.labels(service="geometric").time():
+            manifold = await geometric.manifold_audit(embedding_list)
         spectral = SpectralSignature(**manifold)
     except Exception:
         logger.info("Using local spectral fallback")
@@ -107,11 +111,12 @@ async def store_reasoning_step(
 
     # 7. Store in Mneme
     try:
-        store_resp = await mneme.store_with_geo_index(
-            payload=step.model_dump(mode="json"),
-            embedding=embedding_list,
-            spectral=spectral.model_dump(),
-        )
+        with crs_client_call_duration_seconds.labels(service="mneme").time():
+            store_resp = await mneme.store_with_geo_index(
+                payload=step.model_dump(mode="json"),
+                embedding=embedding_list,
+                spectral=spectral.model_dump(),
+            )
         receipts.append(
             Receipt(
                 service="mneme",
