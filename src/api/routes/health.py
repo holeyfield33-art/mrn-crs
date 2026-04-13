@@ -21,8 +21,12 @@ async def health():
         ("mneme", settings.mneme_url),
     ]:
         try:
+            base = url.rstrip("/")
             async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
-                resp = await client.get(f"{url.rstrip('/')}/health")
+                resp = await client.get(f"{base}/health")
+                if not resp.is_success:
+                    # fallback for services that use /healthz (e.g. geometric-brain)
+                    resp = await client.get(f"{base}/healthz")
                 services[name] = "ok" if resp.is_success else f"status_{resp.status_code}"
         except Exception:
             services[name] = "unreachable"

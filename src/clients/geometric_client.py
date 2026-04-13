@@ -62,7 +62,19 @@ class GeometricClient:
             {"r_ratio": 0.58, "shi": 0.94, "unitarity_check": true}
         """
         url = f"{self.base_url}/v1/brain/manifold-audit"
+        payload: dict[str, Any] = {
+            "source_type": "eigenvalues",
+            "eigenvalues": embedding,
+        }
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json={"embedding": embedding})
+            resp = await client.post(url, json=payload)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            # Normalise upstream field names to what CRS expects
+            return {
+                "r_ratio": data.get("mean_r_ratio", data.get("r_ratio", 0.578)),
+                "shi": data.get("spectral_health_index", data.get("shi", 0.5)),
+                "unitarity_check": data.get("unitarity_check", True),
+                **{k: v for k, v in data.items()
+                   if k not in ("mean_r_ratio", "spectral_health_index")},
+            }

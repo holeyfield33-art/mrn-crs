@@ -16,7 +16,7 @@ from src.api.dependencies import get_aletheia, get_geometric, get_mneme
 
 def _mock_aletheia():
     m = AsyncMock()
-    m.audit_step.return_value = {"decision": "ALLOW", "receipt": {"id": "a-1"}}
+    m.audit_step.return_value = {"decision": "PROCEED", "receipt": {"decision_token": "a-1"}}
     return m
 
 

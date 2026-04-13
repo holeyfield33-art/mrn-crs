@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   crs:
     build: .
@@ -7,7 +5,7 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      - ALETHEIA_URL=http://aletheia:8300
+      - ALETHEIA_URL=http://aletheia:8000
       - GEOMETRIC_URL=http://geometric:8200
       - MNEME_URL=http://mneme:8100
       - CRS_API_KEYS=${CRS_API_KEYS:-}
@@ -26,6 +24,7 @@ services:
       - SELF_HEAL_ESCALATION_WEBHOOK=${SELF_HEAL_ESCALATION_WEBHOOK:-}
       - SELF_HEAL_ESCALATION_FILE=${SELF_HEAL_ESCALATION_FILE:-escalations.jsonl}
       - HEALING_HISTORY_DB=${HEALING_HISTORY_DB:-healing_history.db}
+      - ALETHEIA_API_KEY=${ALETHEIA_API_KEY:-deepseek_v4}
       - SAMPLING_TEMPERATURE=${SAMPLING_TEMPERATURE:-0.7}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ENABLE_HUMAN_GATES=${ENABLE_HUMAN_GATES:-true}
@@ -49,11 +48,11 @@ services:
       retries: 3
 
   aletheia:
-    image: holeyfield33/aletheia-core:1.6.2
+    build: ./services/aletheia
     ports:
       - "8300:8000"
     environment:
-      - ALETHEIA_RECEIPT_SECRET=${ALETHEIA_RECEIPT_SECRET:-changeme-aletheia-secret}
+      - ALETHEIA_RECEIPT_SECRET=${ALETHEIA_RECEIPT_SECRET:-changeme_aletheia_secret_minimum32chars}
       - ALETHEIA_API_KEYS=${ALETHEIA_API_KEYS:-deepseek_v4,perplexity}
       - ALETHEIA_MODE=active
     healthcheck:
@@ -65,20 +64,24 @@ services:
       - mrn-net
 
   geometric:
-    image: holeyfield33/geometric-brain:latest
+    build: ./services/geometric-brain
     ports:
       - "8200:8200"
-    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8200"]
     networks:
       - mrn-net
 
   mneme:
-    image: holeyfield33/mneme:latest
+    build: ./services/mneme
     ports:
       - "8100:8100"
     environment:
       - PERSONAL_MODE=${PERSONAL_MODE:-true}
+      - PERSONAL_API_KEY=${PERSONAL_API_KEY:-crs-dev-key}
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/mneme
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-placeholder}
+      - RESEND_API_KEY=${RESEND_API_KEY:-re_placeholder}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      - JWT_SECRET=${JWT_SECRET:-crs-dev-jwt-secret-minimum32chars}
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,6 +96,7 @@ services:
       - POSTGRES_PASSWORD=password
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

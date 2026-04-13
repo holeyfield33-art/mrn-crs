@@ -45,7 +45,7 @@ async def add_evidence(
             "consensus_evidence",
             {"frame_id": frame_id, "step_id": step_id, "summary": summary},
         )
-        if audit.get("decision") == "DENY":
+        if audit.get("decision") == "DENIED":
             raise PermissionError("Aletheia denied consensus evidence update")
     except httpx.HTTPError as exc:
         logger.warning("Aletheia unreachable during consensus update: %s", exc)

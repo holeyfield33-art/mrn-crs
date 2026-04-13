@@ -12,7 +12,7 @@ from src.main import app
 
 def _mock_aletheia():
     m = AsyncMock()
-    m.audit_action.return_value = {"decision": "ALLOW", "receipt": {"id": "c-audit-1"}}
+    m.audit_action.return_value = {"decision": "PROCEED", "receipt": {"decision_token": "c-audit-1"}}
     return m
 
 

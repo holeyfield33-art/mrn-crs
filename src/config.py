@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     geometric_url: str = "http://localhost:8200"
     mneme_url: str = "http://localhost:8100"
 
+    # Aletheia API key (for authenticating with Aletheia service)
+    aletheia_api_key: str = ""
+
     # API key auth (comma-separated list; empty = auth disabled)
     crs_api_keys: str = ""
 
@@ -45,8 +48,13 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Human-in-the-loop gates
+    enable_human_gates: bool = True
+    autonomous_mode: bool = False
+    freeze_on_critical: bool = True
+
     # Aletheia secrets
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

@@ -71,13 +71,15 @@ async def store_reasoning_step(
     try:
         with crs_client_call_duration_seconds.labels(service="aletheia").time():
             audit_resp = await aletheia.audit_step(step.model_dump(mode="json"))
-        decision = audit_resp.get("decision", "ALLOW")
-        if decision == "DENY":
+        decision = audit_resp.get("decision", "PROCEED")
+        if decision == "DENIED":
             raise PolicyDenied(audit_resp)
+        receipt = audit_resp.get("receipt", {})
+        receipt_id = receipt.get("decision_token") or receipt.get("id", "n/a")
         receipts.append(
             Receipt(
                 service="aletheia",
-                receipt_id=audit_resp.get("receipt", {}).get("id", "n/a"),
+                receipt_id=receipt_id,
                 detail=decision,
             )
         )

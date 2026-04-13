@@ -17,13 +17,13 @@ from src.main import app
 
 def _mock_aletheia_allow():
     m = AsyncMock()
-    m.audit_step.return_value = {"decision": "ALLOW", "receipt": {"id": "a-receipt-1"}}
+    m.audit_step.return_value = {"decision": "PROCEED", "receipt": {"decision_token": "a-receipt-1"}}
     return m
 
 
 def _mock_aletheia_deny():
     m = AsyncMock()
-    m.audit_step.return_value = {"decision": "DENY", "receipt": {"id": "a-deny-1"}}
+    m.audit_step.return_value = {"decision": "DENIED", "receipt": {"decision_token": "a-deny-1"}}
     return m
 
 
