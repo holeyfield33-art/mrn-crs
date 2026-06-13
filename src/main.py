@@ -94,6 +94,8 @@ async def lifespan(app: FastAPI):
             escalation_webhook=settings.self_heal_escalation_webhook,
             escalation_file=settings.self_heal_escalation_file,
             healing_history_db=settings.healing_history_db,
+            enable_human_gates=settings.enable_human_gates,
+            freeze_on_critical=settings.freeze_on_critical,
         )
         heal_task = asyncio.create_task(loop.run())
         app.state.self_healing_loop = loop
