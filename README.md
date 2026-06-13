@@ -213,12 +213,184 @@ A **Fibonacci anchor** (normalised first 10 Fibonacci numbers) serves as the ide
 eigenvalue distribution.  Cosine similarity between the current eigenvalue vector and
 this anchor is the *Fibonacci recovery score*.
 
+## Unconstrained / Autonomous Mode
+
+> **Warning:** Unconstrained mode disables safety gates that exist to prevent runaway
+> or policy-violating reasoning. Use it only in isolated, non-production environments
+> and with a clear understanding of what each flag removes.
+
+### What it is
+
+CRS ships with three interlinked control flags that together form its "constrained" posture.
+Flipping any of them loosens a specific safety mechanism:
+
+| Flag | Default | What it controls |
+| --- | --- | --- |
+| `AUTONOMOUS_MODE` | `false` | When `true`, Aletheia `DENIED` decisions are **logged and overridden** instead of raising HTTP 403. The pipeline continues even if the policy oracle rejected the step. |
+| `ENABLE_HUMAN_GATES` | `true` | When `false`, a `human_escalation` signal from Geometric Brain is **ignored** (logged as a warning) instead of halting the request with HTTP 423. The self-healing loop also skips the `escalate_to_human` action and never writes to the escalation file or webhook. |
+| `FREEZE_ON_CRITICAL` | `true` | When `false`, the four-tier freeze logic is **bypassed**: entropy collapse, runaway divergence, and structural collapse conditions are detected and logged but the system does **not** halt, write `freeze_manifest.json`, or escalate. |
+
+The `unconstrained` git branch ships with all three flags set to their permissive values in `.env.example`. The `main` branch ships with the safe defaults.
+
+### Effect on each subsystem
+
+**Reasoning pipeline (`POST /reason`)**
+
+- `AUTONOMOUS_MODE=true` — Aletheia still runs and records a receipt, but a `DENIED` verdict is downgraded to a warning. The step continues through embedding, storage, and returns HTTP 200.
+- `ENABLE_HUMAN_GATES=false` — Geometric Brain still runs its health-check, but a `human_escalation: true` response is downgraded to a warning. The step continues and returns HTTP 200 instead of HTTP 423.
+
+**Self-healing loop (background)**
+
+- `ENABLE_HUMAN_GATES=false` — High-drift cycles execute `reset_context`, `inject_memories`, and `adjust_temperature` but skip `escalate_to_human`. No JSONL entry is written to the escalation file and no webhook is called.
+- `FREEZE_ON_CRITICAL=false` — All four freeze tiers (semantic loop, critical collapse, runaway divergence, structural collapse) are evaluated and logged but the loop is never halted. `loop.frozen` remains `false` and reasoning requests keep flowing.
+
+### Enabling unconstrained mode
+
+**Via environment variables (any branch):**
+
+```bash
+# In your .env file, set all three flags:
+AUTONOMOUS_MODE=true
+ENABLE_HUMAN_GATES=false
+FREEZE_ON_CRITICAL=false
+```
+
+Then restart the stack:
+
+```bash
+docker compose down && docker compose up --build
+```
+
+**Via the `unconstrained` branch:**
+
+The `unconstrained` branch carries these values pre-set in `.env.example` so you get the permissive posture automatically after `cp .env.example .env`.
+
+```bash
+git checkout unconstrained
+cp .env.example .env
+docker compose up --build
+```
+
+You can also enable individual flags without switching branches if you only want to loosen a single constraint (e.g., disable human gates while keeping freeze logic active).
+
+### Running and testing safely
+
+Unconstrained mode is designed for **development, load testing, and research** — not production traffic. Follow these practices:
+
+**1. Use an isolated environment**
+
+Run unconstrained mode in a dedicated Docker network with no external exposure:
+
+```bash
+# No published ports — access only from within the Docker network
+docker compose -f docker-compose.yml up --build
+# Do NOT add -p / publish port 8000 to the host if other processes can reach it
+```
+
+If you need host access for tooling, bind only to loopback:
+
+```bash
+# In docker-compose.yml, change ports to:
+ports:
+  - "127.0.0.1:8000:8000"
+```
+
+**2. Run the dedicated test suite first**
+
+`tests/test_unconstrained.py` covers all six bypass paths and four regression guards:
+
+```bash
+pip install pytest pytest-asyncio
+pytest tests/test_unconstrained.py -v
+```
+
+All eight tests must pass before running the stack in unconstrained mode. The regression guards (`test_constrained_mode_policy_denial_still_403`, `test_human_gates_on_escalation_still_423`, etc.) verify that switching *back* to constrained mode restores the safe behaviour.
+
+**3. Enable DEBUG logging**
+
+With gates disabled, warnings that would previously be hard errors are now the primary signal. Set `LOG_LEVEL=DEBUG` in `.env` so you can see every bypass:
+
+```bash
+LOG_LEVEL=DEBUG
+```
+
+Watch the CRS logs:
+
+```bash
+docker compose logs -f crs | grep -E "WARNING|override|disabled|skipping"
+```
+
+Key log messages to monitor:
+
+| Message | Source | Meaning |
+| --- | --- | --- |
+| `Autonomous mode – policy denial overridden` | `reasoning.py` | Aletheia `DENIED` was bypassed |
+| `Human gates disabled – escalation signal ignored` | `reasoning.py` | HTTP 423 suppressed |
+| `Human gates disabled – skipping escalation` | `self_healing.py` | No JSONL/webhook written |
+| `freeze_on_critical disabled – skipping freeze` | `self_healing.py` | Critical condition detected but not acted on |
+
+**4. Verify individual flags independently**
+
+Test each flag in isolation before combining all three:
+
+```bash
+# Test autonomous_mode only
+AUTONOMOUS_MODE=true ENABLE_HUMAN_GATES=true FREEZE_ON_CRITICAL=true \
+  uvicorn src.main:app --reload
+
+# Test no human gates only
+AUTONOMOUS_MODE=false ENABLE_HUMAN_GATES=false FREEZE_ON_CRITICAL=true \
+  uvicorn src.main:app --reload
+
+# Test no freeze only
+AUTONOMOUS_MODE=false ENABLE_HUMAN_GATES=true FREEZE_ON_CRITICAL=false \
+  uvicorn src.main:app --reload
+```
+
+**5. Re-enable constraints before any shared or production use**
+
+When you are done, restore the safe defaults:
+
+```bash
+AUTONOMOUS_MODE=false
+ENABLE_HUMAN_GATES=true
+FREEZE_ON_CRITICAL=true
+```
+
+Run the full test suite to confirm constrained behaviour is restored:
+
+```bash
+pytest tests/ -v
+```
+
+### What is NOT bypassed
+
+Even with all three flags set to permissive values, the following remain active:
+
+- **Aletheia still runs** — `AUTONOMOUS_MODE=true` overrides the *decision*, not the audit call. Receipts are still recorded.
+- **Geometric Brain still runs** — `ENABLE_HUMAN_GATES=false` suppresses the *escalation response*, not the health-check itself. Spectral signatures and SHI scores are still computed and stored.
+- **Entropy and drift are still computed** — `FREEZE_ON_CRITICAL=false` disables the freeze *action*, not the measurement. Entropy, drift, and Fibonacci recovery scores are still logged every cycle.
+- **Rate limiting, API key auth, and input validation** are unaffected by these flags.
+
+### Configuration reference
+
+| Variable | Default | Unconstrained value |
+| --- | --- | --- |
+| `AUTONOMOUS_MODE` | `false` | `true` |
+| `ENABLE_HUMAN_GATES` | `true` | `false` |
+| `FREEZE_ON_CRITICAL` | `true` | `false` |
+| `SELF_HEAL_INTERVAL_SECONDS` | `60` | `15` (recommended for faster feedback) |
+| `LOG_LEVEL` | `INFO` | `DEBUG` (recommended) |
+
 ## Testing
 
 ```bash
-# Unit tests
+# Unit tests (includes unconstrained mode tests)
 pip install pytest pytest-asyncio
 pytest tests/ -v
+
+# Run only unconstrained mode tests
+pytest tests/test_unconstrained.py -v
 
 # Smoke test (requires running server)
 bash scripts/run_demo.sh
