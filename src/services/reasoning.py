@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from src.api.metrics import crs_client_call_duration_seconds
+from src.config import settings
 from src.clients.aletheia_client import AletheiaClient
 from src.clients.geometric_client import GeometricClient
 from src.clients.mneme_client import MnemeClient
@@ -73,7 +74,10 @@ async def store_reasoning_step(
             audit_resp = await aletheia.audit_step(step.model_dump(mode="json"))
         decision = audit_resp.get("decision", "PROCEED")
         if decision == "DENIED":
-            raise PolicyDenied(audit_resp)
+            if settings.autonomous_mode:
+                logger.warning("Autonomous mode – policy denial overridden")
+            else:
+                raise PolicyDenied(audit_resp)
         receipt = audit_resp.get("receipt", {})
         receipt_id = receipt.get("decision_token") or receipt.get("id", "n/a")
         receipts.append(
@@ -93,7 +97,10 @@ async def store_reasoning_step(
         with crs_client_call_duration_seconds.labels(service="geometric").time():
             health = await geometric.health_check(combined_text)
         if health.get("human_escalation"):
-            raise HumanEscalation(health)
+            if settings.enable_human_gates:
+                raise HumanEscalation(health)
+            else:
+                logger.warning("Human gates disabled – escalation signal ignored")
     except httpx.HTTPError as exc:
         logger.warning("Geometric Brain unreachable – skipping health-check: %s", exc)
 

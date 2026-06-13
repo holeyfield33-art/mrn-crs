@@ -91,6 +91,8 @@ class SelfHealingLoop:
         escalation_webhook: str = "",
         escalation_file: str = "escalations.jsonl",
         healing_history_db: str = "healing_history.db",
+        enable_human_gates: bool = True,
+        freeze_on_critical: bool = True,
     ) -> None:
         self.mneme = mneme
         self.geometric = geometric
@@ -106,6 +108,8 @@ class SelfHealingLoop:
         self.level_high = level_high
         self.escalation_webhook = escalation_webhook
         self.escalation_file = escalation_file
+        self.enable_human_gates = enable_human_gates
+        self.freeze_on_critical = freeze_on_critical
         self.enabled = True
         self.frozen = False
         self.history = HealingHistory(healing_history_db)
@@ -330,7 +334,7 @@ class SelfHealingLoop:
             self.drift_history = self.drift_history[-100:]
 
         # 7. Check four-tier freeze conditions
-        if await self._check_critical_freeze(entropy, drift, embeddings):
+        if self.freeze_on_critical and await self._check_critical_freeze(entropy, drift, embeddings):
             return  # System is now frozen
 
         if not result.get("self_heal_needed"):
@@ -368,8 +372,11 @@ class SelfHealingLoop:
                 self._action_adjust_temperature(drift)
                 executed_actions.append("adjust_temperature")
             elif action == "escalate_to_human":
-                await self._action_escalate_to_human(drift, level)
-                executed_actions.append("escalate_to_human")
+                if self.enable_human_gates:
+                    await self._action_escalate_to_human(drift, level)
+                    executed_actions.append("escalate_to_human")
+                else:
+                    logger.info("Human gates disabled – skipping escalation")
 
         # 10. Audit each action via Aletheia
         memory_ids = [m.get("id", m.get("step_id", "unknown")) for m in healthy_context_buffer]
