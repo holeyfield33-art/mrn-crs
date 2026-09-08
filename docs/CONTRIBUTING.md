@@ -111,6 +111,7 @@ docker compose up --build
 - [ ] No hardcoded credentials or real service URLs in the diff.
 - [ ] `.env.example` on this branch still shows `AUTONOMOUS_MODE=true` / `ENABLE_HUMAN_GATES=false` / `FREEZE_ON_CRITICAL=false` — do not accidentally revert them.
 - [ ] Any new bypass path is logged with `logger.warning(...)` so operators can observe it.
+- [ ] `python scripts/security_audit.py .env.example` — expected to report the placeholder-secret findings (that's the template working as intended), but confirm no *new* HIGH finding was introduced beyond the known set.
 
 ## Code style
 

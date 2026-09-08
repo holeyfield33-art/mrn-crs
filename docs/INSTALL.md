@@ -21,7 +21,17 @@ cp .env.example .env
 ```
 
 Edit `.env` to change any secrets or defaults. The file is pre-populated with
-working defaults so you can skip this for local development.
+working defaults so you can skip this for local development — but those defaults
+are known placeholder values (`changeme_aletheia_secret_minimum32chars`,
+`sk_test_placeholder`, a default Postgres password, etc.) and auth is disabled by
+default. Before deploying anywhere beyond your own machine, run:
+
+```bash
+python scripts/security_audit.py .env
+```
+
+It exits non-zero if any placeholder secret, disabled auth, or unsafe autonomous-mode
+combination is still present.
 
 ### What gets pulled automatically
 

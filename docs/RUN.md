@@ -40,6 +40,26 @@ curl -X POST http://localhost:8000/reason \
 
 If `CRS_API_KEYS` is set in `.env`, add `-H "Authorization: Bearer <key>"`.
 
+Verified response shape (from a live run with only the CRS process itself running,
+no companion services deployed — those receipt fields show as
+`[companion not deployed]` rather than raw sandbox error text):
+
+```json
+{
+  "step_id": "uuid",
+  "fingerprint": "sha256hex",
+  "receipts": [
+    {"service": "aletheia", "receipt_id": "[not recorded]", "detail": "[companion not deployed]"},
+    {"service": "mneme", "receipt_id": "[not recorded]", "detail": "[companion not deployed]"}
+  ],
+  "spectral": {"r_ratio": 0.84, "shi": 0.78, "unitarity_check": false}
+}
+```
+
+`spectral` is always computed locally regardless of companion availability — see
+[README: What CRS actually does](../README.md#what-crs-actually-does) for what that
+score means and its limits.
+
 ## Smoke test script
 
 ```bash
@@ -59,6 +79,13 @@ Key variables for first-time users:
 | `ENABLE_SELF_HEALING` | Toggle the background drift-detection loop |
 | `LOG_LEVEL` | `DEBUG` for verbose output, `INFO` for production |
 | `POSTGRES_PASSWORD` | Postgres password used by Mneme |
+
+Before running anywhere beyond local dev, audit `.env` for leftover template
+secrets and disabled auth:
+
+```bash
+python scripts/security_audit.py .env
+```
 
 ## Viewing logs
 

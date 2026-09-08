@@ -8,6 +8,33 @@ Production-grade FastAPI service that orchestrates **constrained multi-agent rea
 with geometric self-healing, Aletheia security audit, Mneme memory persistence,
 Geometric Brain spectral analysis, **entropy monitoring**, and **four-tier freeze logic**.
 
+## What CRS actually does
+
+CRS is not a reasoning engine — it doesn't generate premises, conclusions, or decide
+what an agent should do next. It's an **audit and consensus layer that sits in front
+of one**. An agent (any LLM-based system) submits a structured claim — "given premise
+X, I concluded Y, at confidence Z" — and CRS:
+
+1. Records it immutably: a SHA-256 fingerprint of `agent_id + premise + conclusion`,
+   so the same claim can't be silently duplicated or backdated.
+2. Asks Aletheia, a separate policy service, whether the claim is allowed to proceed.
+3. Independently embeds the premise→conclusion text and computes a **geometric
+   coherence score** (`r_ratio`, `shi`) — real, model-independent analysis of whether
+   the *stated* reasoning looks semantically stable. This isn't something the
+   submitting agent can fake by just returning a high confidence number.
+4. Watches that coherence score over time across an agent's submissions (the
+   self-healing loop) to detect drift, repetitive/circular reasoning, or outright
+   collapse — and can freeze the whole pipeline if it does.
+5. Stores everything in Mneme for later retrieval and multi-agent consensus
+   resolution.
+
+**The limit worth understanding:** CRS trusts the agent's own account of *why* it
+reached a conclusion. It has no access to internal model computation (attention
+weights, hidden states, etc.) — it can only judge the coherence of what was reported.
+It's closer to a flight recorder with an independent physics check than a lie
+detector: it proves reasoning was logged and internally coherent, not that it was
+true.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)
@@ -396,9 +423,114 @@ pytest tests/test_unconstrained.py -v
 bash scripts/run_demo.sh
 ```
 
+## Verified example run
+
+The sequence below was run live against this codebase (`main`) with only the CRS
+process itself running — no Aletheia / Geometric Brain / Mneme companions deployed —
+to confirm the service degrades honestly instead of erroring out. Fields that
+depended on a companion service that wasn't present are shown as
+`[companion not deployed]` rather than the raw sandbox-specific error text.
+
+```bash
+AUTONOMOUS_MODE=true ENABLE_HUMAN_GATES=false \
+  uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+**`GET /health`**
+
+```json
+{
+  "status": "ok",
+  "self_healing_active": true,
+  "services": {
+    "aletheia": "[companion not deployed]",
+    "geometric": "[companion not deployed]",
+    "mneme": "[companion not deployed]"
+  }
+}
+```
+
+**`GET /ready`** — `degraded: true`, correctly reflecting the missing companions.
+
+**`POST /reason`** — a real coding-task reasoning step (diagnosing a crash on empty input):
+
+```json
+{
+  "agent_id": "coding-agent-1",
+  "premise": "calculate_average(values) raises IndexError when values is an empty list, because values[0] is accessed unconditionally before the loop",
+  "inference_type": "abductive",
+  "conclusion": "Add a guard clause that returns 0.0 (or raises a clear ValueError) when len(values) == 0, before any indexing occurs",
+  "confidence": 0.9,
+  "epistemic_value": 0.85
+}
+```
+
+Response:
+
+```json
+{
+  "step_id": "478a6ef4-fbb2-4252-9e7a-903ce15e7a7f",
+  "fingerprint": "355e34bb…b870fb9",
+  "receipts": [
+    {"service": "aletheia", "receipt_id": "[not recorded]", "detail": "[companion not deployed]"},
+    {"service": "mneme", "receipt_id": "[not recorded]", "detail": "[companion not deployed]"}
+  ],
+  "spectral": {"r_ratio": 0.836766, "shi": 0.781268, "unitarity_check": false}
+}
+```
+
+The `spectral` block is real, computed locally via
+`sentence-transformers/all-MiniLM-L6-v2` and the local spectral fallback path —
+independent of any companion service.
+
+**`POST /consensus/frame`** — `{"competing_steps": ["step-a", "step-b"]}` → `200`, a
+frame is created with `status: "open"`.
+
+**`GET /metrics`** — `200`, Prometheus text exposition confirmed present.
+
+**Background self-healing loop** — ticked on schedule and logged a cycle warning
+about the memory service being unreachable rather than crashing, exactly the
+behaviour `tests/test_service_fallbacks.py` asserts.
+
+**Security config check:**
+
+```bash
+python scripts/security_audit.py .env.example
+# -> 9 HIGH findings: empty CRS_API_KEYS, plus 7 unrotated placeholder secrets
+#    (ALETHEIA_RECEIPT_SECRET, JWT_SECRET, POSTGRES_PASSWORD, ...)
+```
+
+Confirms `.env.example` is a template, not a deployable config — see
+[Security](#security) below.
+
+Shutdown was clean: the self-healing loop stopped gracefully and the port was
+released with no orphaned process.
+
+## Security
+
+Run the config auditor against your `.env` before deploying anywhere beyond local
+dev:
+
+```bash
+python scripts/security_audit.py .env
+```
+
+It flags:
+
+- API auth disabled (`CRS_API_KEYS` empty)
+- Any of the known placeholder secrets from `.env.example` left unrotated
+- Signing secrets (`ALETHEIA_RECEIPT_SECRET`, `JWT_SECRET`) under 32 characters
+- The `AUTONOMOUS_MODE=true` + `ENABLE_HUMAN_GATES=false` + no-auth combination
+  (policy overrides, no escalation, and no access control, all at once)
+- `FREEZE_ON_CRITICAL=false` (the last safety net disabled)
+
+Exits non-zero on any HIGH severity finding — wire it into CI or a pre-deploy hook.
+
 ## Deployment
 
-1. Set `CRS_API_KEYS` to a strong comma-separated list of keys.
+1. Set `CRS_API_KEYS` to a strong comma-separated list of keys, and run
+   `python scripts/security_audit.py .env` to confirm no placeholder secrets remain
+   — the shipped `.env.example` defaults will all fail this check.
 2. Set `REDIS_URL` to a Redis instance for distributed rate limiting.
 3. Place behind a reverse proxy (nginx, Traefik) with TLS.
 4. Point Prometheus at `/metrics` for monitoring.
