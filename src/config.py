@@ -46,7 +46,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Aletheia secrets
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env", 
+        "env_file_encoding": "utf-8",
+        "extra": "allow"
+    }
 
 
 settings = Settings()
